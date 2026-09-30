@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -30,9 +31,15 @@ public class JwtUtils {
 
 //    Generate token
     public String generateToken(User user) {
+        // Serialize roles thành List<String> (ví dụ: ["ROLE_ADMIN", "ROLE_USER"])
+        // để Gateway có thể extract trực tiếp từ Claims mà không cần parse object phức tạp
+        List<String> roleNames = user.getRoles().stream()
+                .map(role -> role.getRoleName().name())
+                .toList();
+
         Map<String, Object> claims = new HashMap<>();
         claims.put("username", user.getUsername());
-        claims.put("role", user.getRoles());
+        claims.put("roles", roleNames);
 
         return createToken(claims, user.getUsername());
     }

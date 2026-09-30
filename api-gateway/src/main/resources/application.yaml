@@ -6,9 +6,9 @@ spring:
       server:
         webflux:
           routes:
-            # Route 1: Điều hướng tất cả request /identity/** → identity-service
-            # StripPrefix=1 sẽ loại bỏ /identity trước khi forward
-            # Ví dụ: /identity/api/v1/auth/login → /api/v1/auth/login (port 8080)
+            # Route 1: /identity/** → identity-service (port 8080)
+            # StripPrefix=1 loại bỏ /identity trước khi forward
+            # Ví dụ: /identity/api/v1/auth/login → /api/v1/auth/login
             - id: identity-service-route
               uri: http://localhost:8080
               predicates:
@@ -16,10 +16,10 @@ spring:
               filters:
                 - StripPrefix=1
 
-            # Route 2: Mô phỏng định tuyến đa dịch vụ — product service (giả lập tại identity-service)
-            # /product/api/products → /api/products (port 8080)
+            # Route 2: /product/** → product-service (port 8082)
+            # Ví dụ: /product/api/products → /api/products
             - id: product-service-route
-              uri: http://localhost:8080
+              uri: http://localhost:8082
               predicates:
                 - Path=/product/**
               filters:
@@ -32,7 +32,7 @@ server:
 jwt:
   secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
   # Danh sách các path được bỏ qua kiểm tra JWT (whitelist)
-  # Sử dụng AntPath pattern: /identity/api/v1/auth/** bao gồm /login, /register, ...
+  # AntPath pattern: /identity/api/v1/auth/** bao gồm /login, /register
   whitelist-paths:
     - /identity/api/v1/auth/**
 

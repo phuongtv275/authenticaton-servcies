@@ -104,12 +104,29 @@ public class JwtAuthFilter implements WebFilter, Ordered {
             var claims = jwtUtils.parseToken(token);
             String username = claims.getSubject();
 
-            log.debug("[{}] JWT valid for user: '{}', path: {}", correlationId, username, path);
+            // Trích xuất roles từ JWT claims (được serialize thành List<String> bởi identity-service)
+            // Ví dụ: ["ROLE_ADMIN", "ROLE_USER"]
+            @SuppressWarnings("unchecked")
+            List<String> roles = claims.get("roles", List.class);
+            // Lấy role đầu tiên làm giá trị header (user thường chỉ có 1 role chính)
+            // Nếu user có nhiều role, lấy role có quyền cao nhất (ROLE_ADMIN ưu tiên)
+            String primaryRole = (roles != null && !roles.isEmpty())
+                    ? roles.stream()
+                            .filter(r -> r.equals("ROLE_ADMIN"))
+                            .findFirst()
+                            .orElse(roles.get(0))
+                    : "ROLE_USER";
 
-            // Bước 5: Forward request kèm correlationId và username header để service downstream dùng
+            log.debug("[{}] JWT valid — user: '{}', roles: {}, path: {}", correlationId, username, roles, path);
+
+            // Bước 5: Mutate request — gắn User Context headers để downstream service dùng
+            // Đảm bảo chỉ Gateway mới tạo ra các headers này sau khi đã verify token thành công.
+            // Xoá header Authorization gốc để downstream không cần (và không thể) re-validate JWT.
             ServerHttpRequest mutatedRequest = request.mutate()
                     .header(CORRELATION_ID_HEADER, correlationId)
-                    .header("X-Auth-Username", username)
+                    .header("X-User-Id", username)           // Tên user (subject của JWT)
+                    .header("X-User-Role", primaryRole)      // Role chính của user
+                    .header("X-User-Roles", String.join(",", roles != null ? roles : List.of()))
                     .build();
 
             return chain.filter(exchange.mutate().request(mutatedRequest).build());

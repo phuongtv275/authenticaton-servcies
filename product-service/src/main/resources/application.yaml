@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: product-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/product_db
+    username: ${POSTGRES_USER:rikkei}
+    password: ${POSTGRES_PASSWORD:rikkei}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+        show_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+server:
+  port: 8082
+
+logging:
+  level:
+    com.example.productservice: DEBUG
