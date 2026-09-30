@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            # Route 1: Điều hướng tất cả request /identity/** → identity-service
+            # StripPrefix=1 sẽ loại bỏ /identity trước khi forward
+            # Ví dụ: /identity/api/v1/auth/login → /api/v1/auth/login (port 8080)
+            - id: identity-service-route
+              uri: http://localhost:8080
+              predicates:
+                - Path=/identity/**
+              filters:
+                - StripPrefix=1
+
+            # Route 2: Mô phỏng định tuyến đa dịch vụ — product service (giả lập tại identity-service)
+            # /product/api/products → /api/products (port 8080)
+            - id: product-service-route
+              uri: http://localhost:8080
+              predicates:
+                - Path=/product/**
+              filters:
+                - StripPrefix=1
+
+server:
+  port: 8888
+
+# JWT config — copy từ identity-service để Gateway tự validate token
+jwt:
+  secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  # Danh sách các path được bỏ qua kiểm tra JWT (whitelist)
+  # Sử dụng AntPath pattern: /identity/api/v1/auth/** bao gồm /login, /register, ...
+  whitelist-paths:
+    - /identity/api/v1/auth/**
+
+logging:
+  level:
+    com.example.apigateway: DEBUG
