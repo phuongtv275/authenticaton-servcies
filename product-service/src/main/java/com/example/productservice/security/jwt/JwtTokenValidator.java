@@ -42,22 +42,55 @@ public class JwtTokenValidator {
     }
 
     /**
+     * Phân tích và xác thực token JWT trong một lần duy nhất (Single-pass parse & verify).
+     *
+     * @param token chuỗi JWT
+     * @return Optional chứa Claims nếu hợp lệ, Optional.empty() nếu token sai chữ ký hoặc hết hạn
+     */
+    public java.util.Optional<Claims> parseAndValidateClaims(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(getSignKey())
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+            return java.util.Optional.of(claims);
+        } catch (JwtException | IllegalArgumentException e) {
+            log.warn("Invalid JWT token: {}", e.getMessage());
+            return java.util.Optional.empty();
+        }
+    }
+
+    /**
+     * Trích xuất username từ Claims đã được xác thực.
+     */
+    public String extractUsername(Claims claims) {
+        String username = claims.get("username", String.class);
+        return username != null ? username : claims.getSubject();
+    }
+
+    /**
+     * Trích xuất danh sách vai trò (roles) từ Claims đã được xác thực.
+     */
+    @SuppressWarnings("unchecked")
+    public List<String> extractRoles(Claims claims) {
+        Object rolesObj = claims.get("roles");
+        if (rolesObj instanceof List<?>) {
+            return ((List<?>) rolesObj).stream()
+                    .map(Object::toString)
+                    .toList();
+        }
+        return Collections.emptyList();
+    }
+
+    /**
      * Xác thực tính hợp lệ và chữ ký của chuỗi token.
      *
      * @param token chuỗi JWT
      * @return true nếu token hợp lệ, false nếu hết hạn hoặc sai chữ ký
      */
     public boolean validateToken(String token) {
-        try {
-            Jwts.parserBuilder()
-                    .setSigningKey(getSignKey())
-                    .build()
-                    .parseClaimsJws(token);
-            return true;
-        } catch (JwtException | IllegalArgumentException e) {
-            log.warn("Invalid JWT token: {}", e.getMessage());
-            return false;
-        }
+        return parseAndValidateClaims(token).isPresent();
     }
 
     /**
@@ -78,23 +111,17 @@ public class JwtTokenValidator {
      * Trích xuất username (subject) từ token.
      */
     public String getUsername(String token) {
-        Claims claims = getClaims(token);
-        String username = claims.get("username", String.class);
-        return username != null ? username : claims.getSubject();
+        return parseAndValidateClaims(token)
+                .map(this::extractUsername)
+                .orElse(null);
     }
 
     /**
      * Trích xuất danh sách vai trò (roles) từ Claims.
      */
-    @SuppressWarnings("unchecked")
     public List<String> getRoles(String token) {
-        Claims claims = getClaims(token);
-        Object rolesObj = claims.get("roles");
-        if (rolesObj instanceof List<?>) {
-            return ((List<?>) rolesObj).stream()
-                    .map(Object::toString)
-                    .toList();
-        }
-        return Collections.emptyList();
+        return parseAndValidateClaims(token)
+                .map(this::extractRoles)
+                .orElse(Collections.emptyList());
     }
 }

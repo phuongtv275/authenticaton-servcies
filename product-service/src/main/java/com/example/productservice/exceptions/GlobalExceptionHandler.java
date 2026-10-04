@@ -49,12 +49,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
-    /** 403 — Không có quyền truy cập (Access Denied) */
+    /** 403 — Không có quyền truy cập (Access Denied từ @PreAuthorize) */
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDeniedException(
-            org.springframework.security.access.AccessDeniedException ex, WebRequest request) {
-        log.warn("Access denied: {}", ex.getMessage());
-        return buildResponse(HttpStatus.FORBIDDEN, "Access is denied: Insufficient permissions", request);
+            org.springframework.security.access.AccessDeniedException ex, jakarta.servlet.http.HttpServletRequest request) {
+        log.warn("Access denied at '{}': {}", request.getRequestURI(), ex.getMessage());
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", HttpStatus.FORBIDDEN.value());
+        body.put("error", "Forbidden");
+        body.put("message", "Access is denied: Insufficient permissions");
+        body.put("path", request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
 
     /** 500 — Lỗi không mong muốn */

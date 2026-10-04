@@ -1,6 +1,7 @@
 package com.example.productservice.security.filter;
 
 import com.example.productservice.security.jwt.JwtTokenValidator;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.AfterEach;
@@ -18,6 +19,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -46,9 +48,10 @@ class JwtAuthenticationFilterTest {
         request.addHeader(JwtAuthenticationFilter.AUTHORIZATION_HEADER, "Bearer valid-jwt-token");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        when(jwtTokenValidator.validateToken("valid-jwt-token")).thenReturn(true);
-        when(jwtTokenValidator.getUsername("valid-jwt-token")).thenReturn("admin_user");
-        when(jwtTokenValidator.getRoles("valid-jwt-token")).thenReturn(List.of("ROLE_ADMIN", "USER"));
+        Claims claims = mock(Claims.class);
+        when(jwtTokenValidator.parseAndValidateClaims("valid-jwt-token")).thenReturn(Optional.of(claims));
+        when(jwtTokenValidator.extractUsername(claims)).thenReturn("admin_user");
+        when(jwtTokenValidator.extractRoles(claims)).thenReturn(List.of("ROLE_ADMIN", "USER"));
 
         filter.doFilterInternal(request, response, filterChain);
 
@@ -63,7 +66,7 @@ class JwtAuthenticationFilterTest {
 
         assertTrue(authorities.contains("ROLE_ADMIN"));
         assertTrue(authorities.contains("ROLE_USER"));
-        assertTrue(authorities.contains("USER"));
+        assertFalse(authorities.contains("USER")); // Không còn chứa bare role
 
         verify(filterChain).doFilter(request, response);
     }
@@ -88,7 +91,7 @@ class JwtAuthenticationFilterTest {
         request.addHeader(JwtAuthenticationFilter.AUTHORIZATION_HEADER, "Bearer invalid-jwt");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        when(jwtTokenValidator.validateToken("invalid-jwt")).thenReturn(false);
+        when(jwtTokenValidator.parseAndValidateClaims("invalid-jwt")).thenReturn(Optional.empty());
 
         filter.doFilterInternal(request, response, filterChain);
 

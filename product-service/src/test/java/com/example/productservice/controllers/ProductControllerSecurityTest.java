@@ -182,4 +182,88 @@ class ProductControllerSecurityTest {
 
         verify(productService).createProduct(any(CreateProductReq.class));
     }
+
+    @Test
+    @DisplayName("Đã đăng nhập ROLE_USER: GET /api/products/1 trả về 200 OK")
+    void getProductByIdWithUserTokenShouldReturn200() throws Exception {
+        ProductRes res = ProductRes.builder()
+                .id(1L)
+                .name("Laptop")
+                .description("Desc")
+                .price(BigDecimal.valueOf(100))
+                .stock(5)
+                .category("Cat")
+                .createdAt(java.time.LocalDateTime.now())
+                .updatedAt(java.time.LocalDateTime.now())
+                .build();
+        when(productService.getProductById(1L)).thenReturn(res);
+
+        mockMvc.perform(get("/api/products/1")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.name").value("Laptop"));
+
+        verify(productService).getProductById(1L);
+    }
+
+    @Test
+    @DisplayName("Đã đăng nhập ROLE_USER: PUT /api/products/1 trả về 403 Forbidden")
+    void updateProductWithUserTokenShouldReturn403() throws Exception {
+        com.example.productservice.models.dto.req.UpdateProductReq req =
+                new com.example.productservice.models.dto.req.UpdateProductReq("New Name", null, null, null, null);
+
+        mockMvc.perform(put("/api/products/1")
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+
+        verify(productService, never()).updateProduct(any(), any());
+    }
+
+    @Test
+    @DisplayName("Đã đăng nhập ROLE_ADMIN: PUT /api/products/1 trả về 200 OK")
+    void updateProductWithAdminTokenShouldReturn200() throws Exception {
+        com.example.productservice.models.dto.req.UpdateProductReq req =
+                new com.example.productservice.models.dto.req.UpdateProductReq("New Name", null, null, null, null);
+        ProductRes res = ProductRes.builder()
+                .id(1L)
+                .name("New Name")
+                .description("Desc")
+                .price(BigDecimal.valueOf(100))
+                .stock(5)
+                .category("Cat")
+                .createdAt(java.time.LocalDateTime.now())
+                .updatedAt(java.time.LocalDateTime.now())
+                .build();
+        when(productService.updateProduct(eq(1L), any())).thenReturn(res);
+
+        mockMvc.perform(put("/api/products/1")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("New Name"));
+
+        verify(productService).updateProduct(eq(1L), any());
+    }
+
+    @Test
+    @DisplayName("Token hết hạn: GET /api/products trả về 401 Unauthorized")
+    void getProductsWithExpiredTokenShouldReturn401() throws Exception {
+        String expiredToken = Jwts.builder()
+                .setSubject("user1")
+                .addClaims(Map.of("username", "user1", "roles", List.of("ROLE_USER")))
+                .setIssuedAt(new Date(System.currentTimeMillis() - 7200000))
+                .setExpiration(new Date(System.currentTimeMillis() - 3600000))
+                .signWith(Keys.hmacShaKeyFor(Decoders.BASE64.decode(SECRET_KEY)), SignatureAlgorithm.HS256)
+                .compact();
+
+        mockMvc.perform(get("/api/products")
+                        .header("Authorization", "Bearer " + expiredToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+    }
 }

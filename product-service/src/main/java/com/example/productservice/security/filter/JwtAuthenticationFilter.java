@@ -40,32 +40,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String token = resolveToken(request);
 
-        if (StringUtils.hasText(token) && jwtTokenValidator.validateToken(token)) {
-            String username = jwtTokenValidator.getUsername(token);
-            List<String> rawRoles = jwtTokenValidator.getRoles(token);
+        if (StringUtils.hasText(token)) {
+            jwtTokenValidator.parseAndValidateClaims(token).ifPresent(claims -> {
+                String username = jwtTokenValidator.extractUsername(claims);
+                List<String> rawRoles = jwtTokenValidator.extractRoles(claims);
 
-            // Chuyển đổi roles sang SimpleGrantedAuthority.
-            // Đảm bảo hỗ trợ cả hasRole('ADMIN') (cần prefix ROLE_) và hasAuthority('ROLE_ADMIN')
-            Set<SimpleGrantedAuthority> authorities = new HashSet<>();
-            for (String role : rawRoles) {
-                if (!StringUtils.hasText(role)) {
-                    continue;
+                // Chuyển đổi roles sang SimpleGrantedAuthority với tiền tố ROLE_ chuẩn mực
+                Set<SimpleGrantedAuthority> authorities = new HashSet<>();
+                for (String role : rawRoles) {
+                    if (!StringUtils.hasText(role)) {
+                        continue;
+                    }
+                    String authorityName = role.startsWith("ROLE_") ? role : "ROLE_" + role;
+                    authorities.add(new SimpleGrantedAuthority(authorityName));
                 }
-                authorities.add(new SimpleGrantedAuthority(role));
-                if (!role.startsWith("ROLE_")) {
-                    authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
-                }
-            }
 
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    username,
-                    null,
-                    authorities
-            );
-            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                        username,
+                        null,
+                        authorities
+                );
+                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            log.debug("Authenticated user '{}' with authorities: {}", username, authorities);
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                log.debug("Authenticated user '{}' with authorities: {}", username, authorities);
+            });
         }
 
         filterChain.doFilter(request, response);
