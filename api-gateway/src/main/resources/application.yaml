@@ -30,7 +30,7 @@ server:
 
 # JWT config — copy từ identity-service để Gateway tự validate token
 jwt:
-  secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  secret-key: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
   # Danh sách các path được bỏ qua kiểm tra JWT (whitelist)
   # AntPath pattern: /identity/api/v1/auth/** bao gồm /login, /register
   whitelist-paths:

@@ -52,4 +52,26 @@ class CorrelationIdFilterTest {
         assertFalse(responseHeader.isBlank());
         assertNull(MDC.get(CorrelationIdFilter.CORRELATION_ID_MDC_KEY));
     }
+
+    @Test
+    @DisplayName("should replace invalid/malicious correlation ID with new UUID")
+    void shouldReplaceInvalidCorrelationIdWithUuid() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(CorrelationIdFilter.CORRELATION_ID_HEADER, "invalid\r\nCRLF-injection-attack$$$");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        FilterChain filterChain = (req, res) -> {
+            String mdcId = MDC.get(CorrelationIdFilter.CORRELATION_ID_MDC_KEY);
+            assertNotNull(mdcId);
+            assertFalse(mdcId.contains("\r"));
+            assertFalse(mdcId.contains("\n"));
+            assertTrue(mdcId.matches("^[0-9a-fA-F-]{36}$"));
+        };
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        String responseHeader = response.getHeader(CorrelationIdFilter.CORRELATION_ID_HEADER);
+        assertNotNull(responseHeader);
+        assertTrue(responseHeader.matches("^[0-9a-fA-F-]{36}$"));
+    }
 }

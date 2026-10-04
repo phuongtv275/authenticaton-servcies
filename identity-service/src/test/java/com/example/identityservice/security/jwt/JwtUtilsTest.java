@@ -5,6 +5,8 @@ import com.example.identityservice.models.entities.Role;
 import com.example.identityservice.models.entities.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,17 +20,18 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class JwtUtilsTest {
 
+    private static final String VALID_BASE64_SECRET = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970";
     private JwtUtils jwtUtils;
 
     @BeforeEach
     void setUp() {
         jwtUtils = new JwtUtils();
-        ReflectionTestUtils.setField(jwtUtils, "secretKey", "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970");
+        ReflectionTestUtils.setField(jwtUtils, "secretKey", VALID_BASE64_SECRET);
         ReflectionTestUtils.setField(jwtUtils, "accessTokenExpiration", 900000L);
     }
 
     @Test
-    @DisplayName("generateAccessToken should create a valid JWT with user claims and expiration")
+    @DisplayName("generateAccessToken should create a valid JWT verified with Base64 decoded key like Gateway")
     void shouldGenerateAccessTokenSuccessfully() {
         Role role = Role.builder().id(1L).roleName(RoleName.ROLE_USER).build();
         User user = User.builder()
@@ -43,9 +46,10 @@ class JwtUtilsTest {
         assertNotNull(token);
         assertFalse(token.isBlank());
 
-        Key signKey = jwtUtils.getSignKey();
+        // Verify using independent Base64 key decoding (matching Gateway's logic)
+        Key gatewayVerificationKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(VALID_BASE64_SECRET));
         Claims claims = Jwts.parserBuilder()
-                .setSigningKey(signKey)
+                .setSigningKey(gatewayVerificationKey)
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
@@ -58,5 +62,14 @@ class JwtUtilsTest {
         assertTrue(roles.contains("ROLE_USER"));
         assertNotNull(claims.getExpiration());
         assertTrue(claims.getExpiration().getTime() > System.currentTimeMillis());
+    }
+
+    @Test
+    @DisplayName("getSignKey should fail fast if secret is not valid Base64")
+    void shouldFailFastWhenSecretIsNotBase64() {
+        JwtUtils badJwtUtils = new JwtUtils();
+        ReflectionTestUtils.setField(badJwtUtils, "secretKey", "invalid_base64_secret_!@#$%");
+
+        assertThrows(Exception.class, badJwtUtils::getSignKey);
     }
 }

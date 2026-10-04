@@ -29,7 +29,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String correlationId = request.getHeader(CORRELATION_ID_HEADER);
-        if (correlationId == null || correlationId.isBlank()) {
+        if (correlationId == null || !correlationId.matches("^[A-Za-z0-9-]{1,64}$")) {
             correlationId = UUID.randomUUID().toString();
         }
 

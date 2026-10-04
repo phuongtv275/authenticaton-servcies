@@ -1,6 +1,7 @@
 package com.example.identityservice.models.services;
 
 import com.example.identityservice.models.entities.RefreshToken;
+import com.example.identityservice.models.entities.User;
 
 import java.util.Optional;
 
@@ -8,7 +9,7 @@ public interface RefreshTokenService {
 
     RefreshToken createRefreshToken(Long userId);
 
-    RefreshToken createRefreshToken(com.example.identityservice.models.entities.User user);
+    RefreshToken createRefreshToken(User user);
 
     RefreshToken verifyExpiration(RefreshToken token);
 

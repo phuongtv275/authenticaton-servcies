@@ -17,20 +17,16 @@ import java.util.Map;
 
 @Component
 public class JwtUtils {
-    @Value("${app.jwt.secret:${jwt.secret-key:${jwt.secret}}}")
+    @Value("${app.jwt.secret}")
     private String secretKey;
 
-    @Value("${app.jwt.access-token-expiration:${jwt.expired:${jwt.expired-access-token:900000}}}")
+    @Value("${app.jwt.access-token-expiration:900000}")
     private Long accessTokenExpiration;
 
-    // Lấy signing key hỗ trợ cả Base64 và UTF-8 bytes (HMAC-SHA256 >= 256 bits)
+    // Lấy signing key từ Base64 secret (HMAC-SHA256 >= 256 bits)
     public Key getSignKey() {
-        try {
-            byte[] bytes = Decoders.BASE64.decode(secretKey);
-            return Keys.hmacShaKeyFor(bytes);
-        } catch (Exception e) {
-            return Keys.hmacShaKeyFor(secretKey.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        }
+        byte[] bytes = Decoders.BASE64.decode(secretKey);
+        return Keys.hmacShaKeyFor(bytes);
     }
 
     /**
