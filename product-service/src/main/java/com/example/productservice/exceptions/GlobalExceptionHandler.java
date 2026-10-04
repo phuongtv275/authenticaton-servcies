@@ -1,8 +1,10 @@
 package com.example.productservice.exceptions;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -11,6 +13,7 @@ import org.springframework.web.context.request.WebRequest;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Slf4j
@@ -47,6 +50,20 @@ public class GlobalExceptionHandler {
         body.put("fields", fieldErrors);
         body.put("path", request.getDescription(false).replace("uri=", ""));
         return ResponseEntity.badRequest().body(body);
+    }
+
+    /** 403 — Không có quyền truy cập (Access Denied từ @PreAuthorize) */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDeniedException(
+            AccessDeniedException ex, HttpServletRequest request) {
+        log.warn("Access denied at '{}': {}", request.getRequestURI(), ex.getMessage());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", HttpStatus.FORBIDDEN.value());
+        body.put("error", "Forbidden");
+        body.put("message", "Access is denied: Insufficient permissions");
+        body.put("path", request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
 
     /** 500 — Lỗi không mong muốn */
