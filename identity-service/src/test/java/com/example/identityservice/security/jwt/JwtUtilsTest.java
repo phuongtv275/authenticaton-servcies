@@ -63,6 +63,20 @@ class JwtUtilsTest {
         assertTrue(roles.contains("ROLE_USER"));
         assertNotNull(claims.getExpiration());
         assertTrue(claims.getExpiration().getTime() > System.currentTimeMillis());
+
+        // Verify jti claim
+        assertNotNull(claims.getId());
+        assertFalse(claims.getId().isBlank());
+        assertEquals(claims.getId(), jwtUtils.extractJti(token));
+        assertEquals("john_doe", jwtUtils.extractUsername(token));
+        assertNotNull(jwtUtils.extractExpiration(token));
+        assertTrue(jwtUtils.validateToken(token));
+    }
+
+    @Test
+    @DisplayName("validateToken should return false for invalid token string")
+    void shouldReturnFalseForInvalidToken() {
+        assertFalse(jwtUtils.validateToken("invalid.token.string"));
     }
 
     @Test
@@ -72,5 +86,28 @@ class JwtUtilsTest {
         ReflectionTestUtils.setField(badJwtUtils, "secretKey", "invalid_base64_secret_!@#$%");
 
         assertThrows(io.jsonwebtoken.io.DecodingException.class, badJwtUtils::init);
+    }
+
+    @Test
+    @DisplayName("extractAllClaims should return claims even when token is expired without throwing ExpiredJwtException")
+    void shouldExtractClaimsWhenTokenIsExpired() {
+        Key key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(VALID_BASE64_SECRET));
+        String expiredToken = Jwts.builder()
+                .setSubject("expired_user")
+                .setId("expired-jti-123")
+                .setIssuedAt(new java.util.Date(System.currentTimeMillis() - 100000))
+                .setExpiration(new java.util.Date(System.currentTimeMillis() - 50000))
+                .signWith(key, io.jsonwebtoken.SignatureAlgorithm.HS256)
+                .compact();
+
+        assertFalse(jwtUtils.validateToken(expiredToken));
+
+        Claims claims = jwtUtils.extractAllClaims(expiredToken);
+        assertNotNull(claims);
+        assertEquals("expired_user", claims.getSubject());
+        assertEquals("expired-jti-123", claims.getId());
+        assertEquals("expired_user", jwtUtils.extractUsername(expiredToken));
+        assertEquals("expired-jti-123", jwtUtils.extractJti(expiredToken));
+        assertNotNull(jwtUtils.extractExpiration(expiredToken));
     }
 }

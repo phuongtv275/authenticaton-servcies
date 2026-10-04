@@ -12,6 +12,7 @@ import com.example.identityservice.models.entities.User;
 import com.example.identityservice.models.services.impl.AuthServiceImpl;
 import com.example.identityservice.security.jwt.JwtUtils;
 import com.example.identityservice.security.principal.MyUserDetails;
+import com.example.identityservice.models.repositories.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,6 +44,12 @@ class AuthServiceTest {
 
     @Mock
     private RefreshTokenService refreshTokenService;
+
+    @Mock
+    private RedisBlacklistService redisBlacklistService;
+
+    @Mock
+    private UserRepository userRepository;
 
     @Mock
     private Authentication authentication;
@@ -124,5 +132,28 @@ class AuthServiceTest {
         assertEquals("new.access.token", actualRes.accessToken());
         assertEquals("new-refresh-uuid", actualRes.refreshToken());
         verify(refreshTokenService).refreshToken("sample-refresh-uuid");
+    }
+
+    @Test
+    @DisplayName("logout should blacklist token and delete user refresh tokens in database")
+    void shouldLogoutSuccessfully() {
+        String token = "Bearer valid.access.token";
+        io.jsonwebtoken.Claims mockClaims = mock(io.jsonwebtoken.Claims.class);
+        when(mockClaims.getSubject()).thenReturn("testuser");
+        when(redisBlacklistService.blacklistToken("valid.access.token")).thenReturn(mockClaims);
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(sampleUser));
+
+        authService.logout(token);
+
+        verify(redisBlacklistService).blacklistToken("valid.access.token");
+        verify(refreshTokenService).deleteByUser(sampleUser);
+    }
+
+    @Test
+    @DisplayName("logout should throw BadRequestException when token is blank")
+    void shouldThrowBadRequestExceptionWhenTokenIsBlank() {
+        assertThrows(BadRequestException.class, () -> authService.logout(""));
+        assertThrows(BadRequestException.class, () -> authService.logout(null));
+        verify(redisBlacklistService, never()).blacklistToken(any());
     }
 }

@@ -2,6 +2,7 @@ package com.example.identityservice.controllers;
 
 import com.example.identityservice.exceptions.TokenRefreshException;
 import com.example.identityservice.models.dto.req.LoginReq;
+import com.example.identityservice.models.dto.req.LogoutReq;
 import com.example.identityservice.models.dto.req.RefreshTokenReq;
 import com.example.identityservice.models.dto.res.JwtRes;
 import com.example.identityservice.models.dto.res.TokenResponseDTO;
@@ -157,5 +158,63 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/logout with Bearer header should return 200 OK")
+    void shouldLogoutSuccessfullyWithBearerHeader() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                        .with(csrf())
+                        .header("Authorization", "Bearer sample.access.token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Logged out successfully"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/logout with JSON request body should return 200 OK")
+    void shouldLogoutSuccessfullyWithRequestBody() throws Exception {
+        LogoutReq req = new LogoutReq("sample.access.token");
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Logged out successfully"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/logout without token should return 400 Bad Request")
+    void shouldReturnBadRequestWhenNoTokenProvidedOnLogout() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/logout with blank token in body should return 400 Bad Request via validation")
+    void shouldReturnBadRequestWhenTokenIsBlankInRequestBody() throws Exception {
+        LogoutReq req = new LogoutReq("");
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/v1/auth/logout should also work with versioned route")
+    void shouldLogoutSuccessfullyOnVersionedRoute() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(csrf())
+                        .header("Authorization", "Bearer sample.access.token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Logged out successfully"));
     }
 }

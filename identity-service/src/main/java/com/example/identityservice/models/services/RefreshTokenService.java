@@ -18,5 +18,7 @@ public interface RefreshTokenService {
 
     int deleteByUserId(Long userId);
 
+    int deleteByUser(User user);
+
     TokenResponseDTO refreshToken(String requestToken);
 }

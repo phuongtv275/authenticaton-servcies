@@ -13,4 +13,6 @@ public interface AuthService {
     JwtRes login(LoginReq req);
 
     TokenResponseDTO refreshToken(RefreshTokenReq req);
+
+    void logout(String token);
 }

@@ -100,6 +100,16 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         log.info("Deleting refresh tokens for userId: {}", userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found with id: " + userId));
+        return deleteByUser(user);
+    }
+
+    @Override
+    @Transactional
+    public int deleteByUser(User user) {
+        if (user == null) {
+            return 0;
+        }
+        log.info("Deleting refresh tokens for user: [{}] (id: {})", user.getUsername(), user.getId());
         return refreshTokenRepository.deleteByUser(user);
     }
 
