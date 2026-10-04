@@ -8,6 +8,8 @@ public interface RefreshTokenService {
 
     RefreshToken createRefreshToken(Long userId);
 
+    RefreshToken createRefreshToken(com.example.identityservice.models.entities.User user);
+
     RefreshToken verifyExpiration(RefreshToken token);
 
     Optional<RefreshToken> findByToken(String token);

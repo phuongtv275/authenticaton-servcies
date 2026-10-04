@@ -35,6 +35,7 @@ jwt:
   # AntPath pattern: /identity/api/v1/auth/** bao gồm /login, /register
   whitelist-paths:
     - /identity/api/v1/auth/**
+    - /identity/api/auth/**
 
 logging:
   level:

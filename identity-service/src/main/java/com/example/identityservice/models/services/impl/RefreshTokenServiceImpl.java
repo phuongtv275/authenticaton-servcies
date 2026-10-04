@@ -38,10 +38,8 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
      */
     @Override
     @Transactional
-    public RefreshToken createRefreshToken(Long userId) {
-        log.info("Creating refresh token for userId: {}", userId);
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User not found with id: " + userId));
+    public RefreshToken createRefreshToken(User user) {
+        log.info("Creating refresh token for user: {}", user.getUsername());
 
         // Dọn dẹp token cũ của user (nếu có) bằng atomic delete để tránh NonUniqueResultException
         refreshTokenRepository.deleteByUser(user);
@@ -53,8 +51,17 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
                 .build();
 
         RefreshToken saved = refreshTokenRepository.save(refreshToken);
-        log.info("Successfully created refresh token id: {} for userId: {}", saved.getId(), userId);
+        log.info("Successfully created refresh token id: {} for user: {}", saved.getId(), user.getUsername());
         return saved;
+    }
+
+    @Override
+    @Transactional
+    public RefreshToken createRefreshToken(Long userId) {
+        log.info("Creating refresh token for userId: {}", userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found with id: " + userId));
+        return createRefreshToken(user);
     }
 
     /**

@@ -82,7 +82,7 @@ class AuthServiceTest {
                 .expiryDate(Instant.now().plusSeconds(604800))
                 .user(sampleUser)
                 .build();
-        when(refreshTokenService.createRefreshToken(1L)).thenReturn(sampleRefreshToken);
+        when(refreshTokenService.createRefreshToken(sampleUser)).thenReturn(sampleRefreshToken);
 
         JwtRes res = authService.login(req);
 
@@ -93,7 +93,7 @@ class AuthServiceTest {
         assertTrue(res.roles().contains("ROLE_USER"));
 
         verify(jwtUtils).generateAccessToken(sampleUser);
-        verify(refreshTokenService).createRefreshToken(1L);
+        verify(refreshTokenService).createRefreshToken(sampleUser);
     }
 
     @Test
@@ -105,6 +105,7 @@ class AuthServiceTest {
 
         assertThrows(BadRequestException.class, () -> authService.login(req));
         verify(jwtUtils, never()).generateAccessToken(any());
-        verify(refreshTokenService, never()).createRefreshToken(any());
+        verify(refreshTokenService, never()).createRefreshToken(any(User.class));
+        verify(refreshTokenService, never()).createRefreshToken(any(Long.class));
     }
 }

@@ -93,8 +93,8 @@ public class AuthServiceImpl implements AuthService {
         // 1. Tạo Access Token (JWT)
         String accessToken = jwtUtils.generateAccessToken(user);
 
-        // 2. Tạo Refresh Token (UUID lưu vào PostgreSQL)
-        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user.getId());
+        // 2. Tạo Refresh Token (UUID lưu vào PostgreSQL - truyền trực tiếp entity để tránh redundant query)
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
 
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
