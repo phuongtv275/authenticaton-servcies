@@ -181,7 +181,7 @@ class JwtAuthFilterTest {
 
         when(redisTemplate.hasKey("blacklist:" + jti)).thenReturn(Mono.just(false));
         when(filterChain.filter(any())).thenAnswer(invocation -> {
-            MockServerWebExchange mutatedExchange = invocation.getArgument(0);
+            org.springframework.web.server.ServerWebExchange mutatedExchange = invocation.getArgument(0);
             HttpHeaders headers = mutatedExchange.getRequest().getHeaders();
 
             assertNotNull(headers.getFirst("X-Correlation-Id"));
@@ -194,7 +194,78 @@ class JwtAuthFilterTest {
         StepVerifier.create(jwtAuthFilter.filter(exchange, filterChain))
                 .verifyComplete();
 
+        assertNull(exchange.getResponse().getStatusCode(), "Status code should remain null on successful pass");
         verify(redisTemplate).hasKey("blacklist:" + jti);
+        verify(filterChain).filter(any());
+    }
+
+    @Test
+    @DisplayName("Request with existing X-Correlation-Id header should preserve it")
+    void shouldPreserveExistingCorrelationId() {
+        String jti = UUID.randomUUID().toString();
+        String validToken = createToken("admin_user", jti, List.of("ROLE_USER"), 60000);
+
+        MockServerHttpRequest request = MockServerHttpRequest.get("/product/api/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken)
+                .header("X-Correlation-Id", "custom-client-corr-id-999")
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        when(redisTemplate.hasKey("blacklist:" + jti)).thenReturn(Mono.just(false));
+        when(filterChain.filter(any())).thenAnswer(invocation -> {
+            org.springframework.web.server.ServerWebExchange mutatedExchange = invocation.getArgument(0);
+            assertEquals("custom-client-corr-id-999", mutatedExchange.getRequest().getHeaders().getFirst("X-Correlation-Id"));
+            return Mono.empty();
+        });
+
+        StepVerifier.create(jwtAuthFilter.filter(exchange, filterChain))
+                .verifyComplete();
+
+        assertNull(exchange.getResponse().getStatusCode());
+    }
+
+    @Test
+    @DisplayName("Request with token missing subject (username) should return 401 Unauthorized")
+    void shouldReturn401WhenTokenMissingSubject() {
+        var builder = Jwts.builder()
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60000))
+                .id(UUID.randomUUID().toString())
+                .signWith(signingKey);
+        String tokenWithoutSub = builder.compact();
+
+        MockServerHttpRequest request = MockServerHttpRequest.get("/product/api/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenWithoutSub)
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        StepVerifier.create(jwtAuthFilter.filter(exchange, filterChain))
+                .verifyComplete();
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
+        verifyNoInteractions(filterChain);
+        verifyNoInteractions(redisTemplate);
+    }
+
+    @Test
+    @DisplayName("Downstream error should NOT be swallowed by filter onErrorResume")
+    void shouldNotSwallowDownstreamError() {
+        String jti = UUID.randomUUID().toString();
+        String validToken = createToken("john_doe", jti, List.of("ROLE_USER"), 60000);
+
+        MockServerHttpRequest request = MockServerHttpRequest.get("/product/api/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken)
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        when(redisTemplate.hasKey("blacklist:" + jti)).thenReturn(Mono.just(false));
+        when(filterChain.filter(any())).thenReturn(Mono.error(new IllegalStateException("Downstream service crashed")));
+
+        StepVerifier.create(jwtAuthFilter.filter(exchange, filterChain))
+                .expectErrorMatches(throwable -> throwable instanceof IllegalStateException
+                        && throwable.getMessage().equals("Downstream service crashed"))
+                .verify();
+
         verify(filterChain).filter(any());
     }
 

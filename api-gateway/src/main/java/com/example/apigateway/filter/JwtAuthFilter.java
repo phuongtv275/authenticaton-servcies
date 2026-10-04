@@ -19,11 +19,13 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -70,8 +72,11 @@ public class JwtAuthFilter implements WebFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getPath().value();
 
-        // Tạo correlationId để trace log xuyên suốt request lifecycle
-        String correlationId = UUID.randomUUID().toString();
+        // Bảo lưu correlationId nếu client/proxy gửi lên, hoặc tạo mới nếu chưa có
+        String incomingCorrId = request.getHeaders().getFirst(CORRELATION_ID_HEADER);
+        String correlationId = (incomingCorrId != null && !incomingCorrId.isBlank())
+                ? incomingCorrId.trim()
+                : UUID.randomUUID().toString();
         log.debug("[{}] Incoming request: {} {}", correlationId, request.getMethod(), path);
 
         // Bước 1: Kiểm tra whitelist — nếu là auth endpoint thì bỏ qua validate JWT
@@ -106,18 +111,23 @@ public class JwtAuthFilter implements WebFilter, Ordered {
             String username = claims.getSubject();
             String jti = claims.getId();
 
+            // Kiểm tra claim sub (username)
+            if (username == null || username.isBlank()) {
+                log.warn("[{}] Token missing 'sub' (username) claim for path: {}", correlationId, path);
+                return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED, "Invalid token: missing subject", path);
+            }
+
             // Trích xuất roles từ JWT claims (được serialize thành List<String> bởi identity-service)
             // Ví dụ: ["ROLE_ADMIN", "ROLE_USER"]
             @SuppressWarnings("unchecked")
             List<String> roles = claims.get("roles", List.class);
-            // Lấy role đầu tiên làm giá trị header (user thường chỉ có 1 role chính)
-            // Nếu user có nhiều role, lấy role có quyền cao nhất (ROLE_ADMIN ưu tiên)
+            // Lấy role có quyền cao nhất (ROLE_ADMIN ưu tiên) nếu có roles
             String primaryRole = (roles != null && !roles.isEmpty())
                     ? roles.stream()
                             .filter(r -> r.equals("ROLE_ADMIN"))
                             .findFirst()
                             .orElse(roles.get(0))
-                    : "ROLE_USER";
+                    : "";
 
             log.debug("[{}] JWT valid — user: '{}', jti: '{}', roles: {}, path: {}",
                     correlationId, username, jti, roles, path);
@@ -130,12 +140,23 @@ public class JwtAuthFilter implements WebFilter, Ordered {
 
             // Bước 5: Kiểm tra Redis Blacklist (Reactive, Non-blocking)
             // Note giải thích logic:
-            // 1. Truy vấn Redis key "blacklist:{jti}".
-            // 2. Nếu key tồn tại trong Redis (token đã bị logout/thu hồi), chặn ngay tại Gateway với 401 Unauthorized.
-            // 3. Nếu không bị blacklist, tiếp tục forward request kèm context headers đến downstream service.
+            // 1. Truy vấn Redis key "blacklist:{jti}" với timeout 2 giây.
+            // 2. Tách biệt hoàn toàn xử lý lỗi của Redis (onErrorResume) khỏi downstream chain (chain.filter)
+            //    để tránh việc lỗi của downstream bị nuốt thành "Authentication service temporarily unavailable".
+            // 3. Nếu key tồn tại trong Redis (token đã bị logout), chặn ngay tại Gateway với 401 Unauthorized.
+            // 4. Nếu không bị blacklist, tiếp tục forward request kèm context headers đến downstream service.
             String blacklistKey = BLACKLIST_KEY_PREFIX + jti;
             return redisTemplate.hasKey(blacklistKey)
+                    .timeout(Duration.ofMillis(2000))
                     .defaultIfEmpty(false)
+                    .onErrorResume(ex -> {
+                        log.error("[{}] Error querying Redis blacklist for jti '{}': {}",
+                                correlationId, jti, ex.getMessage());
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.INTERNAL_SERVER_ERROR,
+                                "Authentication service temporarily unavailable"
+                        ));
+                    })
                     .flatMap(isBlacklisted -> {
                         if (Boolean.TRUE.equals(isBlacklisted)) {
                             log.warn("[{}] Token with jti '{}' is blacklisted (revoked) for user '{}' on path '{}'",
@@ -158,16 +179,9 @@ public class JwtAuthFilter implements WebFilter, Ordered {
 
                         return chain.filter(exchange.mutate().request(mutatedRequest).build());
                     })
-                    .onErrorResume(ex -> {
-                        log.error("[{}] Error querying Redis blacklist for jti '{}': {}",
-                                correlationId, jti, ex.getMessage());
-                        return writeErrorResponse(
-                                exchange,
-                                HttpStatus.INTERNAL_SERVER_ERROR,
-                                "Authentication service temporarily unavailable",
-                                path
-                        );
-                    });
+                    .onErrorResume(ResponseStatusException.class, ex ->
+                            writeErrorResponse(exchange, HttpStatus.valueOf(ex.getStatusCode().value()), ex.getReason(), path)
+                    );
 
         } catch (ExpiredJwtException ex) {
             // Token hết hạn — trả về 401 với thông báo cụ thể
@@ -216,6 +230,9 @@ public class JwtAuthFilter implements WebFilter, Ordered {
                                           String message,
                                           String path) {
         ServerHttpResponse response = exchange.getResponse();
+        if (response.isCommitted()) {
+            return Mono.empty();
+        }
         response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
