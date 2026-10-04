@@ -43,8 +43,8 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found with id: " + userId));
 
-        // Dọn dẹp token cũ của user nếu có trước khi cấp token mới
-        refreshTokenRepository.findByUser(user).ifPresent(refreshTokenRepository::delete);
+        // Dọn dẹp token cũ của user (nếu có) bằng atomic delete để tránh NonUniqueResultException
+        refreshTokenRepository.deleteByUser(user);
 
         RefreshToken refreshToken = RefreshToken.builder()
                 .user(user)
@@ -61,11 +61,13 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
      * Xác thực xem Refresh Token đã hết hạn hay chưa.
      * Note logic: So sánh expiryDate với Instant.now().
      * Nếu đã hết hạn, xóa bản ghi khỏi DB để dọn dẹp và ném TokenRefreshException.
+     * Cấu hình noRollbackFor để đảm bảo lệnh delete vẫn được commit xuống DB khi ném exception.
      *
      * @param token RefreshToken cần kiểm tra
      * @return token hợp lệ nếu chưa hết hạn
      */
     @Override
+    @Transactional(noRollbackFor = TokenRefreshException.class)
     public RefreshToken verifyExpiration(RefreshToken token) {
         if (token.getExpiryDate().compareTo(Instant.now()) < 0) {
             log.warn("Refresh token [{}] expired at {}", token.getToken(), token.getExpiryDate());

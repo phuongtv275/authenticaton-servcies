@@ -53,6 +53,7 @@ class RefreshTokenServiceTest {
     @DisplayName("createRefreshToken should save and return RefreshToken for valid userId")
     void shouldCreateRefreshTokenSuccessfully() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(sampleUser));
+        when(refreshTokenRepository.deleteByUser(sampleUser)).thenReturn(1);
         when(refreshTokenRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> {
             RefreshToken token = invocation.getArgument(0);
             token.setId(10L);
@@ -67,6 +68,7 @@ class RefreshTokenServiceTest {
         assertEquals(sampleUser, createdToken.getUser());
         assertTrue(createdToken.getExpiryDate().isAfter(Instant.now()));
 
+        verify(refreshTokenRepository).deleteByUser(sampleUser);
         ArgumentCaptor<RefreshToken> captor = ArgumentCaptor.forClass(RefreshToken.class);
         verify(refreshTokenRepository).save(captor.capture());
         assertEquals(sampleUser, captor.getValue().getUser());

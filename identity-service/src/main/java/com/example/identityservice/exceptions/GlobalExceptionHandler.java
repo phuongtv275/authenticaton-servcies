@@ -49,4 +49,11 @@ public class GlobalExceptionHandler {
         log.warn("MethodArgumentNotValidException: {}", errors);
         return ResponseEntity.badRequest().body(Map.of("errors", errors));
     }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<?> handleGlobalException(Exception ex) {
+        log.error("Internal Server Error: ", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "An internal server error occurred. Please contact support."));
+    }
 }
