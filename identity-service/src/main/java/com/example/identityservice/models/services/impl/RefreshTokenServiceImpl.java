@@ -83,7 +83,8 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         if (token.getExpiryDate().compareTo(Instant.now()) < 0) {
             log.warn("Refresh token [{}] expired at {}", token.getToken(), token.getExpiryDate());
             refreshTokenRepository.delete(token);
-            throw new TokenRefreshException(token.getToken(), "Refresh token was expired. Please make a new signin request");
+            refreshTokenRepository.flush();
+            throw new TokenRefreshException(token.getToken(), "Invalid or expired refresh token. Please make a new signin request");
         }
         return token;
     }
@@ -105,8 +106,10 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     /**
      * Xử lý cấp lại Token mới (Token Rotation):
      * Note giải thích logic:
-     * 1. Tìm RefreshToken trong DB bằng chuỗi requestToken. Nếu không tìm thấy, ném TokenRefreshException (403).
+     * 1. Tìm RefreshToken trong DB bằng chuỗi requestToken với PESSIMISTIC_WRITE lock (SELECT FOR UPDATE)
+     *    để ngăn chặn race condition/replay attack khi 2 request cùng gửi một token đồng thời.
      * 2. Kiểm tra token đã hết hạn chưa qua verifyExpiration. Nếu hết hạn, phương thức sẽ xóa token và ném TokenRefreshException (403).
+     *    Nhờ cấu hình noRollbackFor = TokenRefreshException.class, lệnh xóa token hết hạn sẽ được commit thành công xuống DB.
      * 3. (QUAN TRỌNG - Rotation): Xóa bản ghi Refresh Token cũ khỏi DB để ngăn chặn tấn công chiếm hữu / replay phiên làm việc.
      * 4. Lấy User từ token cũ, gọi JwtUtils để tạo Access Token mới.
      * 5. Gọi hàm createRefreshToken(user) để tạo Refresh Token hoàn toàn mới và lưu vào DB.
@@ -116,15 +119,15 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
      * @return TokenResponseDTO chứa accessToken mới và refreshToken mới
      */
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = TokenRefreshException.class)
     public TokenResponseDTO refreshToken(String requestToken) {
         log.info("Processing token rotation for refresh token");
 
-        // 1. Tìm RefreshToken trong DB bằng chuỗi requestToken
-        RefreshToken token = refreshTokenRepository.findByToken(requestToken)
+        // 1. Tìm RefreshToken trong DB với PESSIMISTIC_WRITE lock để ngăn chặn 2 request đồng thời
+        RefreshToken token = refreshTokenRepository.findByTokenWithLock(requestToken)
                 .orElseThrow(() -> {
-                    log.warn("Token rotation failed: Refresh token not found in database");
-                    return new TokenRefreshException(requestToken, "Refresh token was not found in database. Please make a new signin request");
+                    log.warn("Token rotation failed: Refresh token not found or already revoked");
+                    return new TokenRefreshException(requestToken, "Invalid or expired refresh token. Please make a new signin request");
                 });
 
         // 2. Kiểm tra token đã hết hạn chưa. Nếu hết hạn, verifyExpiration xóa token và ném TokenRefreshException.

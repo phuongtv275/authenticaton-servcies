@@ -140,7 +140,7 @@ class RefreshTokenServiceTest {
                 .expiryDate(Instant.now().plus(7, ChronoUnit.DAYS))
                 .build();
 
-        when(refreshTokenRepository.findByToken(oldTokenString)).thenReturn(Optional.of(oldToken));
+        when(refreshTokenRepository.findByTokenWithLock(oldTokenString)).thenReturn(Optional.of(oldToken));
         when(jwtUtils.generateAccessToken(sampleUser)).thenReturn("new.access.token");
         when(refreshTokenRepository.deleteByUser(sampleUser)).thenReturn(1);
         when(refreshTokenRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> {
@@ -159,7 +159,7 @@ class RefreshTokenServiceTest {
         assertEquals("Bearer", response.type());
         assertTrue(response.roles().contains("ROLE_USER"));
 
-        verify(refreshTokenRepository).findByToken(oldTokenString);
+        verify(refreshTokenRepository).findByTokenWithLock(oldTokenString);
         verify(refreshTokenRepository).delete(oldToken);
         verify(refreshTokenRepository).flush();
         verify(jwtUtils).generateAccessToken(sampleUser);
@@ -170,14 +170,14 @@ class RefreshTokenServiceTest {
     @Test
     @DisplayName("refreshToken should throw TokenRefreshException when token not found in DB")
     void shouldThrowWhenRefreshTokenNotFoundDuringRotation() {
-        when(refreshTokenRepository.findByToken("non-existent-token")).thenReturn(Optional.empty());
+        when(refreshTokenRepository.findByTokenWithLock("non-existent-token")).thenReturn(Optional.empty());
 
         TokenRefreshException ex = assertThrows(
                 TokenRefreshException.class,
                 () -> refreshTokenService.refreshToken("non-existent-token")
         );
 
-        assertTrue(ex.getMessage().contains("not found in database"));
+        assertTrue(ex.getMessage().contains("Invalid or expired"));
         verify(refreshTokenRepository, never()).delete(any());
         verify(jwtUtils, never()).generateAccessToken(any());
     }
@@ -193,15 +193,16 @@ class RefreshTokenServiceTest {
                 .expiryDate(Instant.now().minus(1, ChronoUnit.DAYS))
                 .build();
 
-        when(refreshTokenRepository.findByToken(expiredTokenString)).thenReturn(Optional.of(expiredToken));
+        when(refreshTokenRepository.findByTokenWithLock(expiredTokenString)).thenReturn(Optional.of(expiredToken));
 
         TokenRefreshException ex = assertThrows(
                 TokenRefreshException.class,
                 () -> refreshTokenService.refreshToken(expiredTokenString)
         );
 
-        assertTrue(ex.getMessage().contains("expired"));
+        assertTrue(ex.getMessage().contains("Invalid or expired"));
         verify(refreshTokenRepository).delete(expiredToken);
+        verify(refreshTokenRepository).flush();
         verify(jwtUtils, never()).generateAccessToken(any());
     }
 }

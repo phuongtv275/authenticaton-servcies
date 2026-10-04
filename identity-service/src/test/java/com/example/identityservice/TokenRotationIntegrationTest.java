@@ -10,16 +10,21 @@ import com.example.identityservice.models.repositories.RefreshTokenRepository;
 import com.example.identityservice.models.repositories.RoleRepository;
 import com.example.identityservice.models.repositories.UserRepository;
 import com.example.identityservice.models.services.RefreshTokenService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -52,6 +57,14 @@ class TokenRotationIntegrationTest {
                 .fullName("Rotation Tester")
                 .roles(new HashSet<>(Set.of(role)))
                 .build());
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (testUser != null && testUser.getId() != null) {
+            refreshTokenRepository.deleteByUser(testUser);
+            userRepository.delete(testUser);
+        }
     }
 
     @Test
@@ -92,5 +105,65 @@ class TokenRotationIntegrationTest {
         String r3Token = response2.refreshToken();
         assertFalse(refreshTokenRepository.findByToken(r2Token).isPresent(), "R2 must be deleted from DB");
         assertTrue(refreshTokenRepository.findByToken(r3Token).isPresent(), "R3 must be present in DB");
+    }
+
+    @Test
+    @DisplayName("Expired token must be physically deleted from DB and reject with TokenRefreshException")
+    void testExpiredTokenIsDeletedFromDatabaseOnRefresh() {
+        // Tạo token đã hết hạn 1 giờ trước
+        RefreshToken expiredToken = refreshTokenRepository.save(RefreshToken.builder()
+                .user(testUser)
+                .token("expired-" + UUID.randomUUID())
+                .expiryDate(Instant.now().minus(1, ChronoUnit.HOURS))
+                .build());
+
+        String expiredTokenString = expiredToken.getToken();
+        assertTrue(refreshTokenRepository.findByToken(expiredTokenString).isPresent());
+
+        // Gọi refreshToken -> ném TokenRefreshException
+        assertThrows(TokenRefreshException.class, () -> refreshTokenService.refreshToken(expiredTokenString));
+
+        // Xác nhận bản ghi token hết hạn thực sự đã bị xóa khỏi DB (commit thành công nhờ noRollbackFor)
+        assertFalse(refreshTokenRepository.findByToken(expiredTokenString).isPresent(),
+                "Expired token must be committed deleted from DB even when TokenRefreshException is thrown");
+    }
+
+    @Test
+    @DisplayName("Concurrent refresh requests with the same token: exactly one must succeed")
+    void testConcurrentRefreshRequestsWithSameToken() throws Exception {
+        RefreshToken r1 = refreshTokenService.createRefreshToken(testUser);
+        String tokenString = r1.getToken();
+
+        int threadCount = 2;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(threadCount);
+
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failureCount = new AtomicInteger(0);
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    refreshTokenService.refreshToken(tokenString);
+                    successCount.incrementAndGet();
+                } catch (TokenRefreshException e) {
+                    failureCount.incrementAndGet();
+                } catch (Exception e) {
+                    // unexpected error
+                } finally {
+                    endLatch.countDown();
+                }
+            });
+        }
+
+        // Bắt đầu 2 thread cùng lúc
+        startLatch.countDown();
+        assertTrue(endLatch.await(5, TimeUnit.SECONDS));
+        executor.shutdown();
+
+        assertEquals(1, successCount.get(), "Exactly one concurrent refresh request must succeed");
+        assertEquals(1, failureCount.get(), "The other concurrent refresh request must receive 403 / TokenRefreshException");
     }
 }
