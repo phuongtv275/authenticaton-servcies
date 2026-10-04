@@ -4,8 +4,10 @@ import com.example.identityservice.exceptions.BadRequestException;
 import com.example.identityservice.exceptions.NotFoundException;
 import com.example.identityservice.models.constants.RoleName;
 import com.example.identityservice.models.dto.req.LoginReq;
+import com.example.identityservice.models.dto.req.RefreshTokenReq;
 import com.example.identityservice.models.dto.req.RegisterReq;
 import com.example.identityservice.models.dto.res.JwtRes;
+import com.example.identityservice.models.dto.res.TokenResponseDTO;
 import com.example.identityservice.models.entities.RefreshToken;
 import com.example.identityservice.models.entities.Role;
 import com.example.identityservice.models.entities.User;
@@ -109,5 +111,11 @@ public class AuthServiceImpl implements AuthService {
                 "Bearer",
                 roles
         );
+    }
+
+    @Override
+    public TokenResponseDTO refreshToken(RefreshTokenReq req) {
+        log.info("Processing refreshToken in AuthService");
+        return refreshTokenService.refreshToken(req.refreshToken());
     }
 }

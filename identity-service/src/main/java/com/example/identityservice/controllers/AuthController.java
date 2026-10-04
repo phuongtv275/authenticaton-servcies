@@ -1,8 +1,10 @@
 package com.example.identityservice.controllers;
 
 import com.example.identityservice.models.dto.req.LoginReq;
+import com.example.identityservice.models.dto.req.RefreshTokenReq;
 import com.example.identityservice.models.dto.req.RegisterReq;
 import com.example.identityservice.models.dto.res.JwtRes;
+import com.example.identityservice.models.dto.res.TokenResponseDTO;
 import com.example.identityservice.models.services.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -36,5 +38,20 @@ public class AuthController {
         log.info("Received login request for username: {}", req.username());
         JwtRes jwtRes = authService.login(req);
         return ResponseEntity.ok(jwtRes);
+    }
+
+    /**
+     * Endpoint cấp lại token (Token Rotation):
+     * Nhận Refresh Token, kiểm tra tính hợp lệ, hủy token cũ và cấp phát một cặp Access Token + Refresh Token mới.
+     * Note logic: Nếu token không tồn tại hoặc hết hạn, GlobalExceptionHandler sẽ trả về 403 Forbidden.
+     *
+     * @param req DTO chứa Refresh Token hiện tại
+     * @return TokenResponseDTO chứa cặp token mới
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<TokenResponseDTO> refreshToken(@RequestBody @Valid RefreshTokenReq req) {
+        log.info("Received refresh token request");
+        TokenResponseDTO response = authService.refreshToken(req);
+        return ResponseEntity.ok(response);
     }
 }

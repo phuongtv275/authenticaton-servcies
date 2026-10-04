@@ -2,11 +2,13 @@ package com.example.identityservice.models.services.impl;
 
 import com.example.identityservice.exceptions.NotFoundException;
 import com.example.identityservice.exceptions.TokenRefreshException;
+import com.example.identityservice.models.dto.res.TokenResponseDTO;
 import com.example.identityservice.models.entities.RefreshToken;
 import com.example.identityservice.models.entities.User;
 import com.example.identityservice.models.repositories.RefreshTokenRepository;
 import com.example.identityservice.models.repositories.UserRepository;
 import com.example.identityservice.models.services.RefreshTokenService;
+import com.example.identityservice.security.jwt.JwtUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -27,6 +30,7 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
 
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserRepository userRepository;
+    private final JwtUtils jwtUtils;
 
     /**
      * Tạo mới Refresh Token dạng UUID và lưu thông tin hạn sử dụng xuống cơ sở dữ liệu.
@@ -96,5 +100,63 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found with id: " + userId));
         return refreshTokenRepository.deleteByUser(user);
+    }
+
+    /**
+     * Xử lý cấp lại Token mới (Token Rotation):
+     * Note giải thích logic:
+     * 1. Tìm RefreshToken trong DB bằng chuỗi requestToken. Nếu không tìm thấy, ném TokenRefreshException (403).
+     * 2. Kiểm tra token đã hết hạn chưa qua verifyExpiration. Nếu hết hạn, phương thức sẽ xóa token và ném TokenRefreshException (403).
+     * 3. (QUAN TRỌNG - Rotation): Xóa bản ghi Refresh Token cũ khỏi DB để ngăn chặn tấn công chiếm hữu / replay phiên làm việc.
+     * 4. Lấy User từ token cũ, gọi JwtUtils để tạo Access Token mới.
+     * 5. Gọi hàm createRefreshToken(user) để tạo Refresh Token hoàn toàn mới và lưu vào DB.
+     * 6. Trả về cặp Token mới (TokenResponseDTO) cho Client.
+     *
+     * @param requestToken chuỗi refresh token do client gửi lên
+     * @return TokenResponseDTO chứa accessToken mới và refreshToken mới
+     */
+    @Override
+    @Transactional
+    public TokenResponseDTO refreshToken(String requestToken) {
+        log.info("Processing token rotation for refresh token");
+
+        // 1. Tìm RefreshToken trong DB bằng chuỗi requestToken
+        RefreshToken token = refreshTokenRepository.findByToken(requestToken)
+                .orElseThrow(() -> {
+                    log.warn("Token rotation failed: Refresh token not found in database");
+                    return new TokenRefreshException(requestToken, "Refresh token was not found in database. Please make a new signin request");
+                });
+
+        // 2. Kiểm tra token đã hết hạn chưa. Nếu hết hạn, verifyExpiration xóa token và ném TokenRefreshException.
+        verifyExpiration(token);
+
+        User user = token.getUser();
+
+        // 3. (QUAN TRỌNG - Rotation): Xóa bản ghi Refresh Token cũ khỏi DB
+        refreshTokenRepository.delete(token);
+        refreshTokenRepository.flush();
+        log.info("Old refresh token id [{}] deleted for user: {}", token.getId(), user.getUsername());
+
+        // 4. Lấy User từ token cũ, gọi JwtUtils để tạo Access Token mới
+        String newAccessToken = jwtUtils.generateAccessToken(user);
+
+        // 5. Gọi hàm createRefreshToken để tạo Refresh Token hoàn toàn mới
+        RefreshToken newRefreshToken = createRefreshToken(user);
+
+        List<String> roles = user.getRoles() != null
+                ? user.getRoles().stream()
+                    .map(role -> role.getRoleName().name())
+                    .toList()
+                : List.of();
+
+        log.info("Token rotation completed successfully for user: {}. New refresh token id: {}",
+                user.getUsername(), newRefreshToken.getId());
+
+        // 6. Trả về cặp Token mới cho Client
+        return new TokenResponseDTO(
+                newAccessToken,
+                newRefreshToken.getToken(),
+                roles
+        );
     }
 }

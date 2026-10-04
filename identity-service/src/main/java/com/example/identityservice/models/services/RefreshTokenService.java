@@ -1,5 +1,6 @@
 package com.example.identityservice.models.services;
 
+import com.example.identityservice.models.dto.res.TokenResponseDTO;
 import com.example.identityservice.models.entities.RefreshToken;
 import com.example.identityservice.models.entities.User;
 
@@ -16,4 +17,6 @@ public interface RefreshTokenService {
     Optional<RefreshToken> findByToken(String token);
 
     int deleteByUserId(Long userId);
+
+    TokenResponseDTO refreshToken(String requestToken);
 }
