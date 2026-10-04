@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,11 +19,13 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,11 +36,9 @@ import java.util.UUID;
  * 1. Tạo correlationId để trace request xuyên suốt log.
  * 2. Kiểm tra path có thuộc whitelist không (auth endpoints) → bỏ qua nếu có.
  * 3. Lấy header Authorization, kiểm tra định dạng "Bearer <token>".
- * 4. Parse và verify JWT bằng JJWT:
- *    - ExpiredJwtException   → 401 với message "Token has expired"
- *    - JwtException          → 401 với message "Invalid token"
- *    - Missing/Bad format    → 401 với message "Authorization header missing or malformed"
- * 5. Nếu hợp lệ, forward request xuống service (kèm correlationId header).
+ * 4. Parse và verify JWT bằng JJWT (chữ ký + hạn dùng).
+ * 5. Kiểm tra Redis Blacklist (Reactive non-blocking): nếu jti nằm trong Redis -> 401 Unauthorized.
+ * 6. Nếu hợp lệ và không nằm trong blacklist, forward request kèm context headers (correlationId, X-User-Id, ...).
  *
  * Implements {@link WebFilter} thay vì {@link org.springframework.cloud.gateway.filter.GlobalFilter}
  * vì Spring Cloud Gateway 4.x khuyến khích dùng WebFilter cho logic cross-cutting toàn cục.
@@ -47,12 +48,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class JwtAuthFilter implements WebFilter, Ordered {
 
+    public static final String BLACKLIST_KEY_PREFIX = "blacklist:";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String CORRELATION_ID_HEADER = "X-Correlation-Id";
 
     private final JwtUtils jwtUtils;
     private final JwtProperties jwtProperties;
     private final ObjectMapper objectMapper;
+    private final ReactiveStringRedisTemplate redisTemplate;
     private final AntPathMatcher antPathMatcher = new AntPathMatcher();
 
     /**
@@ -69,8 +72,11 @@ public class JwtAuthFilter implements WebFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getPath().value();
 
-        // Tạo correlationId để trace log xuyên suốt request lifecycle
-        String correlationId = UUID.randomUUID().toString();
+        // Bảo lưu correlationId nếu client/proxy gửi lên, hoặc tạo mới nếu chưa có
+        String incomingCorrId = request.getHeaders().getFirst(CORRELATION_ID_HEADER);
+        String correlationId = (incomingCorrId != null && !incomingCorrId.isBlank())
+                ? incomingCorrId.trim()
+                : UUID.randomUUID().toString();
         log.debug("[{}] Incoming request: {} {}", correlationId, request.getMethod(), path);
 
         // Bước 1: Kiểm tra whitelist — nếu là auth endpoint thì bỏ qua validate JWT
@@ -103,33 +109,79 @@ public class JwtAuthFilter implements WebFilter, Ordered {
             // Bước 4: Parse và verify JWT — JJWT sẽ tự kiểm tra chữ ký + thời hạn
             var claims = jwtUtils.parseToken(token);
             String username = claims.getSubject();
+            String jti = claims.getId();
+
+            // Kiểm tra claim sub (username)
+            if (username == null || username.isBlank()) {
+                log.warn("[{}] Token missing 'sub' (username) claim for path: {}", correlationId, path);
+                return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED, "Invalid token: missing subject", path);
+            }
 
             // Trích xuất roles từ JWT claims (được serialize thành List<String> bởi identity-service)
             // Ví dụ: ["ROLE_ADMIN", "ROLE_USER"]
             @SuppressWarnings("unchecked")
             List<String> roles = claims.get("roles", List.class);
-            // Lấy role đầu tiên làm giá trị header (user thường chỉ có 1 role chính)
-            // Nếu user có nhiều role, lấy role có quyền cao nhất (ROLE_ADMIN ưu tiên)
+            // Lấy role có quyền cao nhất (ROLE_ADMIN ưu tiên) nếu có roles
             String primaryRole = (roles != null && !roles.isEmpty())
                     ? roles.stream()
                             .filter(r -> r.equals("ROLE_ADMIN"))
                             .findFirst()
                             .orElse(roles.get(0))
-                    : "ROLE_USER";
+                    : "";
 
-            log.debug("[{}] JWT valid — user: '{}', roles: {}, path: {}", correlationId, username, roles, path);
+            log.debug("[{}] JWT valid — user: '{}', jti: '{}', roles: {}, path: {}",
+                    correlationId, username, jti, roles, path);
 
-            // Bước 5: Mutate request — gắn User Context headers để downstream service dùng
-            // Đảm bảo chỉ Gateway mới tạo ra các headers này sau khi đã verify token thành công.
-            // Xoá header Authorization gốc để downstream không cần (và không thể) re-validate JWT.
-            ServerHttpRequest mutatedRequest = request.mutate()
-                    .header(CORRELATION_ID_HEADER, correlationId)
-                    .header("X-User-Id", username)           // Tên user (subject của JWT)
-                    .header("X-User-Role", primaryRole)      // Role chính của user
-                    .header("X-User-Roles", String.join(",", roles != null ? roles : List.of()))
-                    .build();
+            // Kiểm tra claim jti
+            if (jti == null || jti.isBlank()) {
+                log.warn("[{}] Token missing 'jti' claim for path: {}", correlationId, path);
+                return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED, "Invalid token: missing jti claim", path);
+            }
 
-            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+            // Bước 5: Kiểm tra Redis Blacklist (Reactive, Non-blocking)
+            // Note giải thích logic:
+            // 1. Truy vấn Redis key "blacklist:{jti}" với timeout 2 giây.
+            // 2. Tách biệt hoàn toàn xử lý lỗi của Redis (onErrorResume) khỏi downstream chain (chain.filter)
+            //    để tránh việc lỗi của downstream bị nuốt thành "Authentication service temporarily unavailable".
+            // 3. Nếu key tồn tại trong Redis (token đã bị logout), chặn ngay tại Gateway với 401 Unauthorized.
+            // 4. Nếu không bị blacklist, tiếp tục forward request kèm context headers đến downstream service.
+            String blacklistKey = BLACKLIST_KEY_PREFIX + jti;
+            return redisTemplate.hasKey(blacklistKey)
+                    .timeout(Duration.ofMillis(2000))
+                    .defaultIfEmpty(false)
+                    .onErrorResume(ex -> {
+                        log.error("[{}] Error querying Redis blacklist for jti '{}': {}",
+                                correlationId, jti, ex.getMessage());
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.INTERNAL_SERVER_ERROR,
+                                "Authentication service temporarily unavailable"
+                        ));
+                    })
+                    .flatMap(isBlacklisted -> {
+                        if (Boolean.TRUE.equals(isBlacklisted)) {
+                            log.warn("[{}] Token with jti '{}' is blacklisted (revoked) for user '{}' on path '{}'",
+                                    correlationId, jti, username, path);
+                            return writeErrorResponse(
+                                    exchange,
+                                    HttpStatus.UNAUTHORIZED,
+                                    "Token has been revoked",
+                                    path
+                            );
+                        }
+
+                        // Bước 6: Mutate request — gắn User Context headers để downstream service dùng
+                        ServerHttpRequest mutatedRequest = request.mutate()
+                                .header(CORRELATION_ID_HEADER, correlationId)
+                                .header("X-User-Id", username)           // Tên user (subject của JWT)
+                                .header("X-User-Role", primaryRole)      // Role chính của user
+                                .header("X-User-Roles", String.join(",", roles != null ? roles : List.of()))
+                                .build();
+
+                        return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                    })
+                    .onErrorResume(ResponseStatusException.class, ex ->
+                            writeErrorResponse(exchange, HttpStatus.valueOf(ex.getStatusCode().value()), ex.getReason(), path)
+                    );
 
         } catch (ExpiredJwtException ex) {
             // Token hết hạn — trả về 401 với thông báo cụ thể
@@ -178,6 +230,9 @@ public class JwtAuthFilter implements WebFilter, Ordered {
                                           String message,
                                           String path) {
         ServerHttpResponse response = exchange.getResponse();
+        if (response.isCommitted()) {
+            return Mono.empty();
+        }
         response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
