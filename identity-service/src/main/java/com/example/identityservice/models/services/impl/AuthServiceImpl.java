@@ -14,6 +14,7 @@ import com.example.identityservice.models.entities.User;
 import com.example.identityservice.models.repositories.RoleRepository;
 import com.example.identityservice.models.repositories.UserRepository;
 import com.example.identityservice.models.services.AuthService;
+import com.example.identityservice.models.services.RedisBlacklistService;
 import com.example.identityservice.models.services.RefreshTokenService;
 import com.example.identityservice.security.jwt.JwtUtils;
 import com.example.identityservice.security.principal.MyUserDetails;
@@ -27,6 +28,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
@@ -43,6 +45,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
     private final RefreshTokenService refreshTokenService;
+    private final RedisBlacklistService redisBlacklistService;
 
     @Override
     public void register(RegisterReq req) {
@@ -117,5 +120,43 @@ public class AuthServiceImpl implements AuthService {
     public TokenResponseDTO refreshToken(RefreshTokenReq req) {
         log.info("Processing refreshToken in AuthService");
         return refreshTokenService.refreshToken(req.refreshToken());
+    }
+
+    /**
+     * Xử lý Đăng xuất (Logout) và ghi Blacklist vào Redis:
+     * Note giải thích logic:
+     * 1. Chuẩn hóa token (loại bỏ tiền tố Bearer nếu có).
+     * 2. Giải mã token để lấy claim "jti" và "exp" (thời gian hết hạn), tính TTL và lưu vào Redis Blacklist.
+     * 3. Xóa toàn bộ Refresh Token của User trong PostgreSQL để vô hiệu hóa hoàn toàn phiên làm việc.
+     *
+     * @param token chuỗi Access Token cần thu hồi
+     */
+    @Override
+    @Transactional
+    public void logout(String token) {
+        log.info("Processing logout request");
+        if (token == null || token.isBlank()) {
+            throw new BadRequestException("Token must not be blank for logout");
+        }
+
+        String cleanToken = token.startsWith("Bearer ") ? token.substring(7).trim() : token.trim();
+
+        // 1. Lưu jti vào Redis Blacklist với TTL tương ứng
+        redisBlacklistService.blacklistToken(cleanToken);
+
+        // 2. Thu hồi Refresh Token trong DB PostgreSQL của user (nếu tìm thấy user)
+        try {
+            String username = jwtUtils.extractUsername(cleanToken);
+            if (username != null) {
+                userRepository.findByUsername(username).ifPresent(user -> {
+                    refreshTokenService.deleteByUserId(user.getId());
+                    log.info("Revoked refresh tokens in database for user: [{}]", username);
+                });
+            }
+        } catch (Exception e) {
+            log.warn("Could not cleanup refresh tokens during logout: {}", e.getMessage());
+        }
+
+        log.info("Logout successfully completed");
     }
 }

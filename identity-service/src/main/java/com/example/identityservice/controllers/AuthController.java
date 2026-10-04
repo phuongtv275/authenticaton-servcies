@@ -1,6 +1,8 @@
 package com.example.identityservice.controllers;
 
+import com.example.identityservice.exceptions.BadRequestException;
 import com.example.identityservice.models.dto.req.LoginReq;
+import com.example.identityservice.models.dto.req.LogoutReq;
 import com.example.identityservice.models.dto.req.RefreshTokenReq;
 import com.example.identityservice.models.dto.req.RegisterReq;
 import com.example.identityservice.models.dto.res.JwtRes;
@@ -9,12 +11,12 @@ import com.example.identityservice.models.services.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -53,5 +55,30 @@ public class AuthController {
         log.info("Received refresh token request");
         TokenResponseDTO response = authService.refreshToken(req);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Endpoint đăng xuất:
+     * Nhận Access Token từ Header Authorization: Bearer <token> hoặc Body LogoutReq,
+     * trích xuất jti, ghi blacklist vào Redis với TTL và xóa Refresh Token tương ứng trong PostgreSQL.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, String>> logout(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader,
+            @RequestBody(required = false) LogoutReq req) {
+        log.info("Received logout request");
+        String token = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7).trim();
+        } else if (req != null && req.token() != null && !req.token().isBlank()) {
+            token = req.token();
+        }
+
+        if (token == null || token.isBlank()) {
+            throw new BadRequestException("Access token is required for logout");
+        }
+
+        authService.logout(token);
+        return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
     }
 }

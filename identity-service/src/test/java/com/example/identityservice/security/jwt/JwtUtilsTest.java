@@ -63,6 +63,20 @@ class JwtUtilsTest {
         assertTrue(roles.contains("ROLE_USER"));
         assertNotNull(claims.getExpiration());
         assertTrue(claims.getExpiration().getTime() > System.currentTimeMillis());
+
+        // Verify jti claim
+        assertNotNull(claims.getId());
+        assertFalse(claims.getId().isBlank());
+        assertEquals(claims.getId(), jwtUtils.extractJti(token));
+        assertEquals("john_doe", jwtUtils.extractUsername(token));
+        assertNotNull(jwtUtils.extractExpiration(token));
+        assertTrue(jwtUtils.validateToken(token));
+    }
+
+    @Test
+    @DisplayName("validateToken should return false for invalid token string")
+    void shouldReturnFalseForInvalidToken() {
+        assertFalse(jwtUtils.validateToken("invalid.token.string"));
     }
 
     @Test
