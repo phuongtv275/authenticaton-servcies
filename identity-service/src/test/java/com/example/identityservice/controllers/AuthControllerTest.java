@@ -1,7 +1,10 @@
 package com.example.identityservice.controllers;
 
+import com.example.identityservice.exceptions.TokenRefreshException;
 import com.example.identityservice.models.dto.req.LoginReq;
+import com.example.identityservice.models.dto.req.RefreshTokenReq;
 import com.example.identityservice.models.dto.res.JwtRes;
+import com.example.identityservice.models.dto.res.TokenResponseDTO;
 import com.example.identityservice.models.services.AuthService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,5 +88,74 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(invalidReq)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/refresh should return new tokens on valid refresh request")
+    void shouldReturnNewTokensOnRefresh() throws Exception {
+        RefreshTokenReq req = new RefreshTokenReq("valid-refresh-token");
+        TokenResponseDTO responseDTO = new TokenResponseDTO("new.access.token", "new-refresh-token", List.of("ROLE_USER"));
+
+        when(authService.refreshToken(any(RefreshTokenReq.class))).thenReturn(responseDTO);
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("new.access.token"))
+                .andExpect(jsonPath("$.refreshToken").value("new-refresh-token"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.type").value("Bearer"))
+                .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/v1/auth/refresh should also work with versioned route")
+    void shouldReturnNewTokensOnVersionedRefreshRoute() throws Exception {
+        RefreshTokenReq req = new RefreshTokenReq("valid-refresh-token");
+        TokenResponseDTO responseDTO = new TokenResponseDTO("new.access.token", "new-refresh-token", List.of("ROLE_USER"));
+
+        when(authService.refreshToken(any(RefreshTokenReq.class))).thenReturn(responseDTO);
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("new.access.token"))
+                .andExpect(jsonPath("$.refreshToken").value("new-refresh-token"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/refresh should return 400 Bad Request when refreshToken is blank")
+    void shouldReturnBadRequestWhenRefreshTokenBlank() throws Exception {
+        RefreshTokenReq invalidReq = new RefreshTokenReq("");
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidReq)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/refresh should return 403 Forbidden when token is invalid or expired")
+    void shouldReturnForbiddenWhenTokenInvalidOrExpired() throws Exception {
+        RefreshTokenReq req = new RefreshTokenReq("invalid-or-expired-token");
+
+        when(authService.refreshToken(any(RefreshTokenReq.class)))
+                .thenThrow(new TokenRefreshException("invalid-or-expired-token", "Refresh token was not found in database"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").exists());
     }
 }

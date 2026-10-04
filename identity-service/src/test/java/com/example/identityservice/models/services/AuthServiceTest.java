@@ -3,7 +3,9 @@ package com.example.identityservice.models.services;
 import com.example.identityservice.exceptions.BadRequestException;
 import com.example.identityservice.models.constants.RoleName;
 import com.example.identityservice.models.dto.req.LoginReq;
+import com.example.identityservice.models.dto.req.RefreshTokenReq;
 import com.example.identityservice.models.dto.res.JwtRes;
+import com.example.identityservice.models.dto.res.TokenResponseDTO;
 import com.example.identityservice.models.entities.RefreshToken;
 import com.example.identityservice.models.entities.Role;
 import com.example.identityservice.models.entities.User;
@@ -107,5 +109,20 @@ class AuthServiceTest {
         verify(jwtUtils, never()).generateAccessToken(any());
         verify(refreshTokenService, never()).createRefreshToken(any(User.class));
         verify(refreshTokenService, never()).createRefreshToken(any(Long.class));
+    }
+
+    @Test
+    @DisplayName("refreshToken should delegate to refreshTokenService")
+    void shouldDelegateRefreshTokenToService() {
+        RefreshTokenReq req = new RefreshTokenReq("sample-refresh-uuid");
+        TokenResponseDTO expectedRes = new TokenResponseDTO("new.access.token", "new-refresh-uuid", java.util.List.of("ROLE_USER"));
+        when(refreshTokenService.refreshToken("sample-refresh-uuid")).thenReturn(expectedRes);
+
+        TokenResponseDTO actualRes = authService.refreshToken(req);
+
+        assertNotNull(actualRes);
+        assertEquals("new.access.token", actualRes.accessToken());
+        assertEquals("new-refresh-uuid", actualRes.refreshToken());
+        verify(refreshTokenService).refreshToken("sample-refresh-uuid");
     }
 }
