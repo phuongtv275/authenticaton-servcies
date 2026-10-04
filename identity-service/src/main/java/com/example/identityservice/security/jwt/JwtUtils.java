@@ -6,6 +6,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -23,10 +24,20 @@ public class JwtUtils {
     @Value("${app.jwt.access-token-expiration:900000}")
     private Long accessTokenExpiration;
 
+    private Key signKey;
+
+    @PostConstruct
+    public void init() {
+        byte[] bytes = Decoders.BASE64.decode(secretKey);
+        this.signKey = Keys.hmacShaKeyFor(bytes);
+    }
+
     // Lấy signing key từ Base64 secret (HMAC-SHA256 >= 256 bits)
     public Key getSignKey() {
-        byte[] bytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(bytes);
+        if (this.signKey == null) {
+            init();
+        }
+        return this.signKey;
     }
 
     /**

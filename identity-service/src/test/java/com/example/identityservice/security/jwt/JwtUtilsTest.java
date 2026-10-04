@@ -28,6 +28,7 @@ class JwtUtilsTest {
         jwtUtils = new JwtUtils();
         ReflectionTestUtils.setField(jwtUtils, "secretKey", VALID_BASE64_SECRET);
         ReflectionTestUtils.setField(jwtUtils, "accessTokenExpiration", 900000L);
+        jwtUtils.init();
     }
 
     @Test
@@ -65,11 +66,11 @@ class JwtUtilsTest {
     }
 
     @Test
-    @DisplayName("getSignKey should fail fast if secret is not valid Base64")
+    @DisplayName("init should fail fast on startup if secret is not valid Base64")
     void shouldFailFastWhenSecretIsNotBase64() {
         JwtUtils badJwtUtils = new JwtUtils();
         ReflectionTestUtils.setField(badJwtUtils, "secretKey", "invalid_base64_secret_!@#$%");
 
-        assertThrows(Exception.class, badJwtUtils::getSignKey);
+        assertThrows(io.jsonwebtoken.io.DecodingException.class, badJwtUtils::init);
     }
 }

@@ -23,7 +23,6 @@ app:
 
 logging:
   pattern:
-    level: "%5p [%X{correlationId:-}]"
     correlation: "[%X{correlationId:-}] "
 
 server:
