@@ -1,5 +1,7 @@
 package com.example.identityservice.models.services;
 
+import io.jsonwebtoken.Claims;
+
 public interface RedisBlacklistService {
 
     /**
@@ -7,8 +9,9 @@ public interface RedisBlacklistService {
      * Trích xuất jti và exp, tính TTL và lưu key "blacklist:{jti}" với giá trị "revoked".
      *
      * @param token chuỗi Access Token cần thu hồi
+     * @return Claims giải mã từ token (dùng tiếp cho các tác vụ dọn dẹp)
      */
-    void blacklistToken(String token);
+    Claims blacklistToken(String token);
 
     /**
      * Kiểm tra xem một jti (JWT ID) có nằm trong danh sách đen hay không.

@@ -65,7 +65,7 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<Map<String, String>> logout(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader,
-            @RequestBody(required = false) LogoutReq req) {
+            @RequestBody(required = false) @Valid LogoutReq req) {
         log.info("Received logout request");
         String token = null;
         if (authHeader != null && authHeader.startsWith("Bearer ")) {

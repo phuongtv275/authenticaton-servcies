@@ -87,4 +87,27 @@ class JwtUtilsTest {
 
         assertThrows(io.jsonwebtoken.io.DecodingException.class, badJwtUtils::init);
     }
+
+    @Test
+    @DisplayName("extractAllClaims should return claims even when token is expired without throwing ExpiredJwtException")
+    void shouldExtractClaimsWhenTokenIsExpired() {
+        Key key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(VALID_BASE64_SECRET));
+        String expiredToken = Jwts.builder()
+                .setSubject("expired_user")
+                .setId("expired-jti-123")
+                .setIssuedAt(new java.util.Date(System.currentTimeMillis() - 100000))
+                .setExpiration(new java.util.Date(System.currentTimeMillis() - 50000))
+                .signWith(key, io.jsonwebtoken.SignatureAlgorithm.HS256)
+                .compact();
+
+        assertFalse(jwtUtils.validateToken(expiredToken));
+
+        Claims claims = jwtUtils.extractAllClaims(expiredToken);
+        assertNotNull(claims);
+        assertEquals("expired_user", claims.getSubject());
+        assertEquals("expired-jti-123", claims.getId());
+        assertEquals("expired_user", jwtUtils.extractUsername(expiredToken));
+        assertEquals("expired-jti-123", jwtUtils.extractJti(expiredToken));
+        assertNotNull(jwtUtils.extractExpiration(expiredToken));
+    }
 }

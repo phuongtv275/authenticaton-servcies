@@ -118,4 +118,37 @@ class LogoutRedisIntegrationTest {
         assertFalse(refreshTokenRepository.findByToken(refreshToken.getToken()).isPresent(),
                 "User refresh token must be revoked from PostgreSQL on logout");
     }
+
+    @Test
+    @DisplayName("Logout with expired access token should revoke refresh token in Postgres and skip Redis storage")
+    void testLogoutWithExpiredAccessTokenRevokesRefreshTokenInPostgres() {
+        // 1. Sinh token đã hết hạn cho testUser
+        String expiredJti = UUID.randomUUID().toString();
+        java.util.Map<String, Object> claims = new java.util.HashMap<>();
+        claims.put("username", testUser.getUsername());
+        claims.put(io.jsonwebtoken.Claims.ID, expiredJti);
+
+        String expiredToken = io.jsonwebtoken.Jwts.builder()
+                .setClaims(claims)
+                .setSubject(testUser.getUsername())
+                .setIssuedAt(new java.util.Date(System.currentTimeMillis() - 100000))
+                .setExpiration(new java.util.Date(System.currentTimeMillis() - 50000))
+                .signWith((java.security.Key) org.springframework.test.util.ReflectionTestUtils.getField(jwtUtils, "signKey"), io.jsonwebtoken.SignatureAlgorithm.HS256)
+                .compact();
+
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(testUser);
+        assertTrue(refreshTokenRepository.findByToken(refreshToken.getToken()).isPresent(),
+                "Refresh token must be present before logout");
+
+        // 2. Thực hiện logout với token đã hết hạn
+        assertDoesNotThrow(() -> authService.logout(expiredToken));
+
+        // 3. Redis: Không lưu key vì token đã hết hạn (TTL <= 0)
+        String redisKey = "blacklist:" + expiredJti;
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey(redisKey)), "Expired token should not be stored in Redis");
+
+        // 4. PostgreSQL: Refresh Token của user vẫn phải được thu hồi/xóa
+        assertFalse(refreshTokenRepository.findByToken(refreshToken.getToken()).isPresent(),
+                "User refresh token must still be revoked in PostgreSQL even if access token is expired");
+    }
 }

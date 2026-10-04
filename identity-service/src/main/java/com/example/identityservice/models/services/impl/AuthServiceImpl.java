@@ -18,6 +18,7 @@ import com.example.identityservice.models.services.RedisBlacklistService;
 import com.example.identityservice.models.services.RefreshTokenService;
 import com.example.identityservice.security.jwt.JwtUtils;
 import com.example.identityservice.security.principal.MyUserDetails;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -141,20 +142,16 @@ public class AuthServiceImpl implements AuthService {
 
         String cleanToken = token.startsWith("Bearer ") ? token.substring(7).trim() : token.trim();
 
-        // 1. Lưu jti vào Redis Blacklist với TTL tương ứng
-        redisBlacklistService.blacklistToken(cleanToken);
+        // 1. Lưu jti vào Redis Blacklist với TTL tương ứng (và trích xuất Claims)
+        Claims claims = redisBlacklistService.blacklistToken(cleanToken);
 
         // 2. Thu hồi Refresh Token trong DB PostgreSQL của user (nếu tìm thấy user)
-        try {
-            String username = jwtUtils.extractUsername(cleanToken);
-            if (username != null) {
-                userRepository.findByUsername(username).ifPresent(user -> {
-                    refreshTokenService.deleteByUserId(user.getId());
-                    log.info("Revoked refresh tokens in database for user: [{}]", username);
-                });
-            }
-        } catch (Exception e) {
-            log.warn("Could not cleanup refresh tokens during logout: {}", e.getMessage());
+        String username = claims != null ? claims.getSubject() : null;
+        if (username != null && !username.isBlank()) {
+            userRepository.findByUsername(username).ifPresent(user -> {
+                refreshTokenService.deleteByUser(user);
+                log.info("Revoked refresh tokens in database for user: [{}]", username);
+            });
         }
 
         log.info("Logout successfully completed");

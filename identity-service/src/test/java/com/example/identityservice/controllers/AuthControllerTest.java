@@ -196,6 +196,19 @@ class AuthControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("POST /api/auth/logout with blank token in body should return 400 Bad Request via validation")
+    void shouldReturnBadRequestWhenTokenIsBlankInRequestBody() throws Exception {
+        LogoutReq req = new LogoutReq("");
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("POST /api/v1/auth/logout should also work with versioned route")
     void shouldLogoutSuccessfullyOnVersionedRoute() throws Exception {
         mockMvc.perform(post("/api/v1/auth/logout")

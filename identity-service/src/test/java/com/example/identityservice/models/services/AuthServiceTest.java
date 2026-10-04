@@ -138,13 +138,15 @@ class AuthServiceTest {
     @DisplayName("logout should blacklist token and delete user refresh tokens in database")
     void shouldLogoutSuccessfully() {
         String token = "Bearer valid.access.token";
-        when(jwtUtils.extractUsername("valid.access.token")).thenReturn("testuser");
+        io.jsonwebtoken.Claims mockClaims = mock(io.jsonwebtoken.Claims.class);
+        when(mockClaims.getSubject()).thenReturn("testuser");
+        when(redisBlacklistService.blacklistToken("valid.access.token")).thenReturn(mockClaims);
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(sampleUser));
 
         authService.logout(token);
 
         verify(redisBlacklistService).blacklistToken("valid.access.token");
-        verify(refreshTokenService).deleteByUserId(sampleUser.getId());
+        verify(refreshTokenService).deleteByUser(sampleUser);
     }
 
     @Test

@@ -8,6 +8,8 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
+import io.jsonwebtoken.ExpiredJwtException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @Component
 public class JwtUtils {
     @Value("${app.jwt.secret}")
@@ -65,7 +68,6 @@ public class JwtUtils {
 
         return Jwts.builder()
                 .setClaims(claims)
-                .setId(jti)
                 .setSubject(user.getUsername())
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + accessTokenExpiration))
@@ -80,13 +82,19 @@ public class JwtUtils {
 
     /**
      * Giải mã toàn bộ Claims từ chuỗi JWT.
+     * Cho phép lấy claims ngay cả khi token đã hết hạn tự nhiên (ExpiredJwtException).
      */
     public Claims extractAllClaims(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(getSignKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
+        try {
+            return Jwts.parserBuilder()
+                    .setSigningKey(getSignKey())
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+        } catch (ExpiredJwtException e) {
+            log.debug("Token has expired, returning claims from ExpiredJwtException: {}", e.getMessage());
+            return e.getClaims();
+        }
     }
 
     /**
