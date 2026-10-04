@@ -1,6 +1,12 @@
 spring:
   application:
     name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:rikkeiacademy}
+      timeout: 2000ms
   cloud:
     gateway:
       server:
@@ -25,6 +31,18 @@ spring:
               filters:
                 - StripPrefix=1
 
+            # Route 3: /api/products/** → product-service (port 8082)
+            - id: product-service-direct-route
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/products/**
+
+            # Route 4: /api/auth/**, /api/v1/auth/** → identity-service (port 8080)
+            - id: identity-service-direct-route
+              uri: http://localhost:8080
+              predicates:
+                - Path=/api/v1/auth/**, /api/auth/**
+
 server:
   port: 8888
 
@@ -32,10 +50,12 @@ server:
 jwt:
   secret-key: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
   # Danh sách các path được bỏ qua kiểm tra JWT (whitelist)
-  # AntPath pattern: /identity/api/v1/auth/** bao gồm /login, /register
+  # AntPath pattern: bao gồm /login, /register, /refresh, /logout
   whitelist-paths:
     - /identity/api/v1/auth/**
     - /identity/api/auth/**
+    - /api/v1/auth/**
+    - /api/auth/**
 
 logging:
   level:

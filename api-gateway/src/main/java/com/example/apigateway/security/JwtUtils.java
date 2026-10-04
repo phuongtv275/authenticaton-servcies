@@ -55,6 +55,17 @@ public class JwtUtils {
     }
 
     /**
+     * Trích xuất claim jti (JWT ID) từ token.
+     *
+     * @param token chuỗi JWT
+     * @return jti của token
+     */
+    public String extractJti(String token) {
+        Claims claims = parseToken(token);
+        return claims != null ? claims.getId() : null;
+    }
+
+    /**
      * Kiểm tra nhanh token có hợp lệ không (không throw exception ra ngoài).
      * Dùng để log thêm thông tin, còn filter vẫn handle exception trực tiếp.
      */
