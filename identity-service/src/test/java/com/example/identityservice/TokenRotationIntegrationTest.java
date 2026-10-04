@@ -141,6 +141,7 @@ class TokenRotationIntegrationTest {
 
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);
+        java.util.concurrent.atomic.AtomicReference<Throwable> unexpectedError = new java.util.concurrent.atomic.AtomicReference<>();
 
         for (int i = 0; i < threadCount; i++) {
             executor.submit(() -> {
@@ -150,8 +151,8 @@ class TokenRotationIntegrationTest {
                     successCount.incrementAndGet();
                 } catch (TokenRefreshException e) {
                     failureCount.incrementAndGet();
-                } catch (Exception e) {
-                    // unexpected error
+                } catch (Throwable e) {
+                    unexpectedError.set(e);
                 } finally {
                     endLatch.countDown();
                 }
@@ -163,6 +164,7 @@ class TokenRotationIntegrationTest {
         assertTrue(endLatch.await(5, TimeUnit.SECONDS));
         executor.shutdown();
 
+        assertNull(unexpectedError.get(), () -> "Unexpected error during concurrent refresh: " + unexpectedError.get());
         assertEquals(1, successCount.get(), "Exactly one concurrent refresh request must succeed");
         assertEquals(1, failureCount.get(), "The other concurrent refresh request must receive 403 / TokenRefreshException");
     }
