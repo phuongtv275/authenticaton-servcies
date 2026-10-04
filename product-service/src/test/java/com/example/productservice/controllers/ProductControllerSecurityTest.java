@@ -266,4 +266,23 @@ class ProductControllerSecurityTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401));
     }
+
+    @Test
+    @DisplayName("Token bị làm giả chữ ký: GET /api/products trả về 401 Unauthorized")
+    void getProductsWithTamperedTokenShouldReturn401() throws Exception {
+        String wrongSecret = "1111111111111111111111111111111111111111111111111111111111111111";
+        String tamperedToken = Jwts.builder()
+                .setSubject("attacker")
+                .addClaims(Map.of("username", "attacker", "roles", List.of("ROLE_ADMIN")))
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 3600000))
+                .signWith(Keys.hmacShaKeyFor(Decoders.BASE64.decode(wrongSecret)), SignatureAlgorithm.HS256)
+                .compact();
+
+        mockMvc.perform(get("/api/products")
+                        .header("Authorization", "Bearer " + tamperedToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"));
+    }
 }

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import java.security.Key;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Validator và parser JWT cho Downstream Service (Product-Service).
@@ -47,17 +48,17 @@ public class JwtTokenValidator {
      * @param token chuỗi JWT
      * @return Optional chứa Claims nếu hợp lệ, Optional.empty() nếu token sai chữ ký hoặc hết hạn
      */
-    public java.util.Optional<Claims> parseAndValidateClaims(String token) {
+    public Optional<Claims> parseAndValidateClaims(String token) {
         try {
             Claims claims = Jwts.parserBuilder()
                     .setSigningKey(getSignKey())
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
-            return java.util.Optional.of(claims);
+            return Optional.of(claims);
         } catch (JwtException | IllegalArgumentException e) {
             log.warn("Invalid JWT token: {}", e.getMessage());
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
     }
 
