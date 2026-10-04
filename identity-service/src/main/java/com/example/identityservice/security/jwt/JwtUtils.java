@@ -6,6 +6,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,41 +18,56 @@ import java.util.Map;
 
 @Component
 public class JwtUtils {
-    @Value("${jwt.secret-key:${jwt.secret}}")
+    @Value("${app.jwt.secret}")
     private String secretKey;
 
-    @Value("${jwt.expired:${jwt.expired-access-token}}")
-    private Long expiredAccessToken;
+    @Value("${app.jwt.access-token-expiration:900000}")
+    private Long accessTokenExpiration;
 
-//    Bam key
-    public Key getSignKey() {
+    private Key signKey;
+
+    @PostConstruct
+    public void init() {
         byte[] bytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(bytes);
+        this.signKey = Keys.hmacShaKeyFor(bytes);
     }
 
-//    Generate token
-    public String generateToken(User user) {
-        // Serialize roles thành List<String> (ví dụ: ["ROLE_ADMIN", "ROLE_USER"])
-        // để Gateway có thể extract trực tiếp từ Claims mà không cần parse object phức tạp
-        List<String> roleNames = user.getRoles().stream()
-                .map(role -> role.getRoleName().name())
-                .toList();
+    // Lấy signing key từ Base64 secret (HMAC-SHA256 >= 256 bits)
+    public Key getSignKey() {
+        if (this.signKey == null) {
+            init();
+        }
+        return this.signKey;
+    }
+
+    /**
+     * Tạo Access Token (JWT) ngắn hạn chứa thông tin người dùng và vai trò (roles).
+     *
+     * @param user đối tượng User chứa thông tin tài khoản và danh sách quyền
+     * @return chuỗi JWT Access Token
+     */
+    public String generateAccessToken(User user) {
+        List<String> roleNames = user.getRoles() != null
+                ? user.getRoles().stream()
+                    .map(role -> role.getRoleName().name())
+                    .toList()
+                : List.of();
 
         Map<String, Object> claims = new HashMap<>();
         claims.put("username", user.getUsername());
         claims.put("roles", roleNames);
 
-        return createToken(claims, user.getUsername());
-    }
-
-//    Create token
-    private String createToken(Map<String, Object> claims, String username) {
         return Jwts.builder()
                 .setClaims(claims)
-                .setSubject(username)
+                .setSubject(user.getUsername())
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiredAccessToken))
+                .setExpiration(new Date(System.currentTimeMillis() + accessTokenExpiration))
                 .signWith(getSignKey(), SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    // Giữ lại generateToken để tương thích ngược
+    public String generateToken(User user) {
+        return generateAccessToken(user);
     }
 }

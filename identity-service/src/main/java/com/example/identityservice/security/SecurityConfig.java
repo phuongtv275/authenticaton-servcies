@@ -53,7 +53,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(
                         req -> req
-                                .requestMatchers("/api/v1/auth/**").permitAll()
+                                .requestMatchers("/api/v1/auth/**", "/api/auth/**").permitAll()
                                 // Cho phép truy cập endpoint giả lập Product Service không cần xác thực
                                 .requestMatchers("/api/products/**").permitAll()
                                 .anyRequest().authenticated()
